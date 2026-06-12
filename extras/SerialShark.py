@@ -4,89 +4,116 @@ import serial
 import io
 import os
 import subprocess
-import signal
+import sys
 import time
 
-try:
-    serialportInput = input("[?] Select a serial port (default '/dev/ttyUSB0'): ")
-    if serialportInput == "":
-        serialport = "/dev/ttyUSB0"
-    else:
-        serialport = serialportInput
-except KeyboardInterrupt:
-    print("\n[+] Exiting...")
-    exit()
+import serial.tools.list_ports
+import serial.serialutil
+from serial.tools.list_ports_common import ListPortInfo
 
-try:
-    canBreak = False
-    while not canBreak:
-        boardRateInput = input("[?] Select a baudrate (default '921600'): ")
-        if boardRateInput == "":
-            boardRate = 921600
-            canBreak = True
-        else:
-            try:
-                boardRate = int(boardRateInput)
-            except KeyboardInterrupt:
-                print("\n[+] Exiting...")
-                exit()
-            except Exception as e:
-                print("[!] Please enter a number!")
-                continue
-            canBreak = True
-except KeyboardInterrupt:
-    print("\n[+] Exiting...")
-    exit()
+VALID_VIDS = [ 6790 ]
 
-try:
-    filenameInput = input("[?] Select a filename (default 'capture.pcap'): ")
-    if filenameInput == "":
-        filename = "capture.pcap"
-    else:
-        filename = filenameInput
-except KeyboardInterrupt:
-    print("\n[+] Exiting...")
-    exit()
 
-canBreak = False
-while not canBreak:
+def main() -> None:
+    wireshark = sys.argv[1]
     try:
-        ser = serial.Serial(serialport, boardRate)
-        canBreak = True
+        ports: list[ListPortInfo] = [port for port in serial.tools.list_ports.comports() if port.vid in VALID_VIDS]
+        if len(ports) == 1:
+            print(f"[*] Detected compatible serial port: {ports[0].device} - {ports[0].description}")
+            serialport = ports[0].device
+        elif len(ports) > 1:
+            print()
+            [print(f"\t<{i}> | {port.device} - {port.usb_info()}")
+             for i, port in enumerate(ports, 1)]
+            canBreak = False
+            while not canBreak:
+                try:
+                    serialport = ports[int(
+                        input("[?] Select a serial port:"))].device
+                    canBreak = True
+                except KeyboardInterrupt:
+                    print("\n[+] Exiting...")
+                    exit()
+                except Exception as e:
+                    print("[!] Please enter a number!")
+        else:
+            print("[!] No serial port found.")
+            print("\n[+] Exiting...")
+            exit()
+            
+        canBreak = False
+        while not canBreak:
+            boardRateInput = input(
+                "[?] Select a baudrate (default '921600'): ")
+            if boardRateInput == "":
+                boardRate = 921600
+                canBreak = True
+            else:
+                try:
+                    boardRate = int(boardRateInput)
+                except KeyboardInterrupt:
+                    print("\n[+] Exiting...")
+                    exit()
+                except Exception as e:
+                    print("[!] Please enter a number!")
+                    continue
+                canBreak = True
     except KeyboardInterrupt:
         print("\n[+] Exiting...")
         exit()
-    except:
-        print("[!] Serial connection failed... Retrying...")
-        time.sleep(2)
-        continue
 
-print("[+] Serial connected. Name: " + ser.name)
-counter = 0
-f = open(filename,'wb')
+    canBreak = False
+    maxRetries = 3
+    failCount = 0
+    while not canBreak:
+        try:
+            ser = serial.Serial(serialport, boardRate)
+            canBreak = True
+        except KeyboardInterrupt:
+            print("\n[+] Exiting...")
+            exit()
+        except:
+            print("[!] Serial connection failed... Retrying...")
+            time.sleep(2)
+            failCount += 1
+            if failCount >= maxRetries:
+                print(f"[!] Failed to connect to serial port after {maxRetries} tries.")
+                print("\n[+] Exiting...")
+                exit()
+            continue
 
-check = 0
-while check == 0:
-    line = ser.readline()
-    if b"<<START>>" in line:
-        check = 1
-        print("[+] Stream started...")
-    #else: print '"'+line+'"'
+    print("[+] Serial connected. Name: " + ser.name)
 
-print("[+] Starting up wireshark...")
-cmd = "tail -f -c +0 " + filename + " | wireshark -k -i -"
-p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                       shell=True, preexec_fn=os.setsid)
+    check = 0
+    while check == 0:
+        try:
+            line = ser.readline()
+            if b"<<START>>" in line:
+                check = 1
+                print("[+] Stream started...")
+            # else: print '"'+line+'"'
+        except serial.serialutil.SerialException:
+            print("[!] Serial connection closed!")
+            print("\n[+] Exiting...")
+            exit()
 
-try:
-    while True:
-        ch = ser.read()
-        f.write(ch)
-        f.flush()
-except KeyboardInterrupt:
-    print("[+] Stopping...")
-    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+    print("[+] Starting up wireshark...")
+    cmd = f"{wireshark} -k -i -"
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, shell=True)
 
-f.close()
-ser.close()
-print("[+] Done.")
+    try:
+        while True:
+            p.stdin.write(ser.read_all())
+            p.stdin.flush()
+    except KeyboardInterrupt:
+        print("[+] Stopping...")
+    except serial.serialutil.SerialException:
+        print("[!] Serial connection closed!")
+        print("[+] Stopping...")
+
+    ser.close()
+    print("[+] Done.")
+
+
+if __name__ == "__main__" and len(sys.argv) > 1:
+    main()
