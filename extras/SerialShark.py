@@ -84,13 +84,13 @@ def main() -> None:
 
     print("[+] Serial connected. Name: " + ser.name)
 
-    check = 0
-    while check == 0:
+    while True:
         try:
             line = ser.readline()
+            print(f"{line=}")
             if b"<<START>>" in line:
-                check = 1
                 print("[+] Stream started...")
+                break
             # else: print '"'+line+'"'
         except serial.serialutil.SerialException:
             print("[!] Serial connection closed!")

@@ -10,15 +10,7 @@
 
 #include "esp_err.h"
 #include "Stream.h"
-
-template <typename T, typename CharT = uint8_t>
-union Bytes
-{
-  Bytes(T t) : type(t) {}
-  static constexpr size_t sizeT = sizeof(T);
-  T type;
-  CharT bytes[sizeT / sizeof(CharT)];
-};
+#include "RawView.h"
 
 class PCAP
 {
@@ -149,7 +141,7 @@ public:
 
 private:
   template<typename T>
-  void io_write(const Bytes<T> &b);
+  void io_write(const RawView<T> &b);
 private:
   constexpr static uint32_t magic_number = 0xa1b2c3d4;
   constexpr static uint16_t version_major = 2; // latest as of 06/2026

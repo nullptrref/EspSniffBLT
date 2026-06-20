@@ -1,7 +1,7 @@
 #include "PCAP.h"
 
 template<typename T>
-void PCAP::io_write(const Bytes<T> &b) { mIO.write(b.bytes, b.sizeT); }
+void PCAP::io_write(const RawView<T> &b) { mIO->write(b.bytes, b.size); }
 
 /* send file header */
 esp_err_t PCAP::start(Stream *io, LinkType linktype)
